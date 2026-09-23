@@ -61,7 +61,9 @@ class App(tk.Tk):
         cap_cfg = self.app_cfg.capture
         self._cap = ScreenCapture(monitor=cap_cfg.monitor, roi=cap_cfg.mmap_roi)
         self._mask = locator.make_mask()
-        self._loc_thread = LiveLocator(cfg=self.app_cfg, mask=self._mask)
+        # Share the live settings dictionary with the UI and capture producer.
+        # Passing AppConfig makes a snapshot, so newly selected ROIs are ignored.
+        self._loc_thread = LiveLocator(cfg=self.cfg, mask=self._mask)
         self._loc_thread.start()
 
         self._hotkeys = HotkeyManager(self, self._on_global_hotkey)
