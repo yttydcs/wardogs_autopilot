@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import tkinter as tk
@@ -265,9 +266,39 @@ class MapTab(ttk.Frame):
             loc.set_collect_fail_logs(enabled)
 
     def copy_debug(self) -> None:
-        txt = self.dbg_text.get("1.0", "end-1c")
+        txt = self._diagnostic_text()
         self.clipboard_clear()
         self.clipboard_append(txt)
+
+    def _diagnostic_text(self) -> str:
+        """Report failures and startup state even before a map canvas is ready."""
+        loc = self.get_loc()
+        latest = getattr(loc, "latest", None) if loc is not None else None
+        item = latest if latest is not None else self._last_loc
+        item = item or {}
+        payload = {
+            "map": self.map_name,
+            "capture": self.cfg.get("capture", {}),
+            "phase": getattr(loc, "phase", "") or "waiting for localization",
+            "error": getattr(loc, "error", None),
+            "attempt": getattr(loc, "attempt", 0),
+            "ts": item.get("ts"),
+            "elapsed": item.get("elapsed"),
+            "map_px": item.get("map_px"),
+            "pose": item.get("pose"),
+            "diag": item.get("diag") or {},
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+
+    def _update_diagnostics(self) -> None:
+        txt = self._diagnostic_text()
+        if txt == getattr(self, "_last_debug_text", None):
+            return
+        self.dbg_text.configure(state="normal")
+        self.dbg_text.delete("1.0", "end")
+        self.dbg_text.insert("1.0", txt)
+        self.dbg_text.configure(state="disabled")
+        self._last_debug_text = txt
 
     def save_debug_frame(self) -> None:
         """Capture live diagnostic snapshot asynchronously."""
@@ -296,6 +327,7 @@ class MapTab(ttk.Frame):
     def update_loc(self, last_loc: dict[str, Any] | None) -> None:
         """Receive latest localization pose item from main event loop."""
         self._last_loc = last_loc
+        self._update_diagnostics()
         if self.canvas_widget.disp is not None:
             self._draw_overlay(self.canvas_widget.canvas, self.canvas_widget.disp)
 
