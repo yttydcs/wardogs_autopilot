@@ -227,6 +227,10 @@ class RoiTab(ttk.Frame):
 
         try:
             with np.load(feat_path) as idx:
+                from ...vision.featureindex import _INDEX_NORM
+
+                if str(idx.get("norm", [""])[0]) != _INDEX_NORM:
+                    return "SIFT index is outdated (press Rebuild)", "#ffaa00"
                 sig = str(idx.get("gray_sig", [""])[0])
                 n_tiles = int(idx.get("gw", 0)) * int(idx.get("gh", 0))
                 return (
@@ -251,7 +255,7 @@ class RoiTab(ttk.Frame):
             "Map Cache",
             f'Rebuild map cache and SIFT feature index for "{name}"?\n\n'
             "This will regenerate mu.npy, preview mipmaps, and the SIFT descriptor index.\n"
-            "This process runs in the background and takes ~1-2 minutes.",
+            "This process runs in the background and may take several minutes.",
         ):
             return
         self._cache_rebuild_busy = True

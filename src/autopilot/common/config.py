@@ -44,6 +44,7 @@ class LocatorConfig(BaseModel):
     local_radius: int = Field(default=450, ge=50, description="Tracking search radius (px)")
     radius_growth: float = Field(default=1.6, ge=1.0, le=5.0)
     global_max_features: int = Field(default=100000, ge=1000)
+    min_pose_scale: float = Field(default=0.25, gt=0, le=0.7)
     max_kp_frame: int = Field(
         default=1200,
         ge=100,

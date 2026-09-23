@@ -8,6 +8,7 @@ preprocessing.py.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from typing import Any, Literal, overload
@@ -186,8 +187,10 @@ class MapLocator:
         ratio = float(thr["ratio"])
         min_rate = float(thr["min_inl_rate"])
 
+        global_kn = None
         if r is None:
-            cands = idx.global_candidates(int(self.store.loc_cfg()["global_max_features"]))
+            pts, desc, global_kn = idx.global_matches(d1)
+            cands = [(0, pts, desc)]
             scope = "global"
         else:
             cands = idx.radius_candidates(cx, cy, r)
@@ -201,9 +204,21 @@ class MapLocator:
                 break
             if d2 is None or len(d2) < 2:
                 continue
-            kn = self.bf.knnMatch(d1, d2, k=2)
-            good = [g for g, n in kn if g.distance < ratio * n.distance]
+            diag["kp_chunk"] = max(diag["kp_chunk"], len(d2))
+            kn = global_kn if global_kn is not None else self.bf.knnMatch(d1, d2, k=2)
+            good = [
+                pair[0]
+                for pair in kn
+                if len(pair) == 2 and pair[0].distance < ratio * pair[1].distance
+            ]
+            # Reject many-to-one matches before RANSAC. Repeated tree texture
+            # otherwise produces a degenerate, near-zero-scale transform.
+            if good:
+                reverse = self.bf.match(np.asarray([d2[g.trainIdx] for g in good]), d1)
+                good = [g for i, g in enumerate(good) if reverse[i].trainIdx == g.queryIdx]
+            diag["good1"] = max(diag["good1"], len(good))
             if len(good) < 4:
+                tried.append((len(good), 0, "too few mutual matches"))
                 continue
             src = np.array([kp1[g.queryIdx].pt for g in good], dtype=np.float32).reshape(-1, 1, 2)
             dst = np.array([pts[g.trainIdx] for g in good], dtype=np.float32).reshape(-1, 1, 2)
@@ -212,19 +227,22 @@ class MapLocator:
                 dst,
                 method=cv2.RANSAC,
                 ransacReprojThreshold=6.0,
-                maxIters=2000,
+                maxIters=10000,
                 confidence=0.999,
             )
             if m3 is None or inl_mask is None:
+                tried.append((len(good), 0, "no geometric model"))
                 continue
             inl = int(inl_mask.sum())
+            diag["inl1"] = max(diag["inl1"], inl)
             if inl < min_inl:
+                tried.append((len(good), inl, "too few inliers"))
                 continue
             if min_rate > 0.0 and inl < min_rate * len(good):
                 tried.append((len(good), inl, f"inl_rate {inl / max(len(good), 1):.2f}"))
                 continue
             s = float(np.hypot(m3[0, 0], m3[0, 1]))
-            if not 0.7 <= s <= 2.6:
+            if not float(self.store.loc_cfg().get("min_pose_scale", 0.25)) <= s <= 2.6:
                 tried.append((len(good), inl, f"scale {s:.2f}"))
                 continue
             inliers = [good[i] for i, v in enumerate(inl_mask.flatten()) if v]
@@ -244,7 +262,7 @@ class MapLocator:
         diag["kp_pts"] = [kp.pt for kp in kp1]
         if best is None:
             diag["inlier_pts"] = []
-            diag["reject"] = "index_no_match"
+            diag["reject"] = "budget_timeout" if _over(start_t, budget) else "index_no_match"
             diag["detail"] = f"index ({scope}) search found no pose (tried={tried or '-'})"
             return None, diag
 
@@ -362,6 +380,36 @@ class MapLocator:
             last_diag = dd
             if res is not None:
                 mx, my = self._mm_center_to_map(res, mm)
+                # A cold-start hypothesis is only accepted after an independent
+                # exact local match with more supporting points.
+                refine_radius = max(200.0, max(mm.shape) * res["s"] * 1.5)
+                refined, rd = self._pose_via_index(
+                    mm,
+                    ui_mask,
+                    idx,
+                    mx,
+                    my,
+                    refine_radius,
+                    thr={**local_thr, "min_inl": max(8, global_thr["min_inl"])},
+                    budget=budget,
+                    t0=start_t,
+                    feats=feats,
+                )
+                if refined is None:
+                    dd["reject"] = "index_no_match"
+                    dd["detail"] = "global candidate failed local verification: " + rd["detail"]
+                    dd["refine"] = {
+                        k: v for k, v in rd.items() if k not in ("kp_pts", "inlier_pts")
+                    }
+                    _mark_search(dd, discs, True)
+                    return None, dd
+                rx, ry = self._mm_center_to_map(refined, mm)
+                if math.hypot(rx - mx, ry - my) > refine_radius / 2:
+                    dd["reject"] = "index_no_match"
+                    dd["detail"] = "global candidate and local verification disagree"
+                    _mark_search(dd, discs, True)
+                    return None, dd
+                res, dd, mx, my = refined, rd, rx, ry
                 rad = max(float(cfg["local_radius"]), 350.0)
                 _mark_search(dd, discs, True)
                 return res, dd, mx - rad, my - rad, rad
@@ -547,6 +595,9 @@ class MapLocator:
 
         if r is None:
             if d is not None:
+                for k in ("kp_chunk", "good1", "inl1", "refine"):
+                    if k in d:
+                        diag[k] = d[k]
                 diag["reject"] = d.get("reject") or "index_no_match"
                 diag["detail"] = d.get("detail") or "index search found no pose"
                 for k in ("search_discs", "search_global"):

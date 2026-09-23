@@ -191,6 +191,27 @@ Or double-click `autopilot.bat` (launches windowless via `pythonw.exe`).
 
 ## Configuration
 
+### Updating older localization indexes
+
+After updating from the original raw-feature matcher, open **Capture zone**,
+select your map under **Map Cache & SIFT Feature Index**, and click
+**Rebuild Cache & SIFT Index**. Wait for completion, then restart the application.
+Existing raw indexes are marked outdated and cannot be used by the new matcher.
+
+The index now uses percentile-normalized tiles at 1.7x internal map resolution.
+This preserves features in zoomed-in minimaps and matches the query's contrast
+processing. Global acquisition searches the complete descriptor set with a
+cached FLANN tree, filters matches in both directions, and requires an exact
+local verification with at least eight inliers before publishing a position.
+`locator.min_pose_scale` defaults to 0.25; collapsed, near-zero-scale transforms
+remain rejected.
+
+Index building can take several minutes. Large maps require more disk space
+and memory: the tested 32768x32768 Zestafona image produced an approximately
+1.3 GB feature index. At startup, **preparing full-map search index...** can last
+tens of seconds; subsequent searches reuse that tree. The legacy
+`global_max_features` sampling limit is no longer used by global acquisition.
+
 Configuration is stored in `config.json` at the project root:
 - `capture`: Monitor index, FPS, minimap ROI coordinates.
 - `map`: Active map name (`zestafona`, `bakurani`, `ozeti`), dimensions, grayscale conversion.

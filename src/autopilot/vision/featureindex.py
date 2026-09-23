@@ -2,12 +2,11 @@
 
 Builds once per map (CLI: python -m autopilot.vision.featureindex --build zestafona)
 and stores descriptors of the downscaled map pyramid in data/maps/<name>_feat.npz.
-The minimap is then matched via BF.knnMatch against the descriptors of the tiles
-around the last known position (radius search), avoiding per-frame SIFT
-detection over a big window.
+Local tracking matches descriptors near the last known position with BFMatcher.
+Global acquisition uses a cached FLANN tree over all descriptors rather than
+sampling away potential matches. Both avoid per-frame map feature extraction.
 
-The index is a cache only: load_index() returns None when the npz is absent and
-the caller falls back to the classic window + coarse search (see locator.py).
+The index is a cache: when it is missing, the UI requests a rebuild.
 """
 
 import argparse
@@ -31,15 +30,12 @@ TILE = 512
 # in the index (measured: 3 vs 12 RANSAC inliers on the same tile). Keep nearly
 # all of them.
 MAX_PER_TILE = 3000
-LEVELS = (1.0, 0.8, 0.6)
+LEVELS = (1.7,)
 
-# Descriptor build must match the query's preprocessing space. In practice the
-# game minimap aligns with the RAW map pixels: descriptors from raw tiles match
-# real captured frames far stronger than percentile-normalized ones (measured:
-# 60 vs 4 RANSAC inliers on an identical frame), so tiles are built WITHOUT
-# pixel normalization. 'raw' is that tag; bump it whenever the build or the
-# matching-side contract changes to invalidate stale npz caches.
-_INDEX_NORM = "raw"
+# Match the query's percentile-normalized contrast space. The enlarged level
+# retains small road/tree features for zoomed-in minimaps. Changing the norm
+# invalidates the old raw indexes so the UI requests a rebuild.
+_INDEX_NORM = "perc298"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _MAPS_DIR = os.path.join(ROOT, "data", "maps")
@@ -78,8 +74,8 @@ def build_index(
 
     Reads the already-cached *mu.npy (never the full PNG) and extracts SIFT
     descriptors per pyramid level on a tile grid with reflected borders. With
-    norm='raw' (default) the tiles feed SIFT exactly as the map pixels are;
-    'perc298' percentile-normalizes each tile (kept for experiments). Level
+    norm='raw' feeds SIFT the original map pixels;
+    'perc298' (default) percentile-normalizes each tile. Level
     coordinates are divided by the level scale into map (mu) pixels. Returns
     None when the map cache is missing or the build failed.
     """
@@ -231,6 +227,35 @@ class FeatureIndex:
             )
         # most detailed level (max features) first — matches are tried on it first
         self._levels.sort(key=lambda lv: len(lv["desc"]), reverse=True)
+        self._global_matcher = None
+
+    def prepare_global_matcher(self):
+        """Build a reusable full-map search tree instead of dropping descriptors.
+
+        Initialization can take tens of seconds for large maps. LiveLocator
+        warms it before starting capture so this cost is not paid per frame.
+        """
+        if self._global_matcher is None:
+            import cv2
+
+            desc = self._levels[0]["desc"]
+            if len(desc) < 2:
+                return
+            matcher = cv2.FlannBasedMatcher(dict(algorithm=1, trees=4), dict(checks=128))
+            matcher.add([desc])
+            matcher.train()
+            self._global_matcher = matcher
+
+    def global_matches(self, descriptors):
+        """Nearest pairs against all features of the most detailed level."""
+        self.prepare_global_matcher()
+        level = self._levels[0]
+        matches = (
+            self._global_matcher.knnMatch(descriptors, k=2)
+            if self._global_matcher is not None
+            else []
+        )
+        return level["pts"], level["desc"], matches
 
     def _tile_range(self, cx, cy, r):
         """Level indices whose tiles overlap the circle in mu coords."""
@@ -299,7 +324,7 @@ def main():
     ap.add_argument(
         "--levels",
         default=None,
-        help="scale levels, comma list e.g. 1.0,0.9,0.8,0.7,0.6 (default: 1.0,0.8,0.6)",
+        help="scale levels, comma list (default: 1.7)",
     )
     ap.add_argument(
         "--max-per-tile",

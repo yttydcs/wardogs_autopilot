@@ -289,6 +289,10 @@ class LiveLocator(threading.Thread):
     def run(self) -> None:
         try:
             locator.load_global_map()
+            idx = locator.get_store().get_index()
+            if idx is not None:
+                self.phase = "preparing full-map search index..."
+                idx.prepare_global_matcher()
             self.phase = "searching pose..."
             q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
             prod = _CaptureProducer(self.cfg, self.mask, self.frame_source, self._stop, q)
