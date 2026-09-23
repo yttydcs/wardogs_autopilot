@@ -225,6 +225,7 @@ class FollowDriver(threading.Thread):
         self._stop_ev.wait(base * random.uniform(0.75, 1.35))
 
     def _rel(self, state: str) -> None:
+        self.steer_ctrl.force_release(time.time(), self.path.mh_t)
         try:
             if self.kb is not None:
                 self.kb.release_all()
@@ -440,22 +441,18 @@ class FollowDriver(threading.Thread):
                 # Cross-track error & pure pursuit bearing
                 xte, xte_lim, bearing = self.path.calc_xte_and_bearing(mp, self._px_per_m_now())
 
-                # Heading calculation & smoothing
-                mh_age = now - self.path.mh_t if self.path.mh is not None else 1e9
-                mh_on = self.path.mh is not None and self.path.mv > 10.0 and mh_age < 1.5
-                if self.path.mh is not None and mh_age < 3.0:
-                    heading_src = self.path.mh
-                elif pose is not None:
-                    heading_src = float(pose["th"]) % 360.0
-                else:
-                    heading_src = self.path.mh or 0.0
-
-                if self._heading is None:
-                    self._heading = heading_src
-                else:
-                    dd = wrap180(heading_src - self._heading)
-                    self._heading = (self._heading + dd * 0.5) % 360.0
-                heading = self._heading
+                # Map registration rotation is not vehicle heading on a north-up map.
+                heading = self.path.motion_heading(now)
+                if heading is None:
+                    if self.state != "wait_heading":
+                        logger.info("[nav] waiting for movement heading; drive forward briefly")
+                    self.steer_ctrl.force_release(now, self.path.mh_t)
+                    self._heading = None
+                    self._rel("wait_heading")
+                    self._wait(self.poll)
+                    continue
+                mh_on = True
+                self._heading = heading
                 err = wrap180(bearing - heading)
 
                 # Road geometry angles

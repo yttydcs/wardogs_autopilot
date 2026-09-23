@@ -66,6 +66,7 @@ class SteeringController:
         self.last_hd_t = 0.0
         self.settle_until = 0.0
         self.imp_end = 0.0
+        self.settle_mh = -1.0
 
     def force_release(self, now: float, mh_t: float) -> None:
         """Release wheel immediately and trigger settle pause."""
@@ -100,91 +101,31 @@ class SteeringController:
         mh_t: float,
     ) -> int:
         """Evaluate steering state machine and return active key command (-1=A, 0=None, +1=D)."""
-        self.update_angular_velocity(now, heading)
-
-        # Consecutive big-error debounce: a single-tick glitch (localization
-        # flicker) must not engage continuous steering.
-        self.big_n = self.big_n + 1 if abs(err) >= self.turn_deg else 0
-
-        fresh = mh is None or mh_t > self.settle_mh or now > self.settle_until + 0.5
-
-        if self.steer == 0:
-            if now > self.settle_until and fresh:
-                if err > self.dead:
-                    self.steer = 1
-                    self.micro = False
-                    self.hold = self.big_n >= 2
-                    self.hold_err0 = abs(err)
-                    self.imp_end = now + (
-                        self.hold_max if self.hold else min(self.calc_impulse(abs(err)), self.t_max)
-                    )
-                    self.press_t0 = now
-                    self.press_h0 = heading
-                    self.hold_t0 = now
-                elif err < -self.dead:
-                    self.steer = -1
-                    self.micro = False
-                    self.hold = self.big_n >= 2
-                    self.hold_err0 = abs(err)
-                    self.imp_end = now + (
-                        self.hold_max if self.hold else min(self.calc_impulse(abs(err)), self.t_max)
-                    )
-                    self.press_t0 = now
-                    self.press_h0 = heading
-                    self.hold_t0 = now
-        else:
-            # Upgrade an in-progress impulse to continuous steering once a
-            # big error persists across the debounce window (~2 ticks).
-            if not self.hold and self.big_n >= 2:
-                self.hold = True
-                self.imp_end = now + self.hold_max
-
-            rotated = abs(wrap180(heading - self.press_h0))
-            press_age = now - self.press_t0
-            small = err < self.dead_off if self.steer == 1 else err > -self.dead_off
-            if self.hold:
-                # Continuous steering: keep turning until the heading really
-                # aligns with the bearing (not an impulse timeout).
-                aligned = abs(err) < self.dead
-                turned = rotated >= min(abs(err), self.hold_err0) * 0.8 + self.dead_off
-                released = aligned or turned or now >= self.imp_end
-            else:
-                released = (
-                    rotated >= abs(err) * 0.85 + self.dead_off
-                    or (press_age > 0.45 and rotated < 3.0)
-                    or small
-                    or now >= self.imp_end
-                )
-
-            if released:
+        # Never turn without recent motion evidence. Repeated control ticks are
+        # not new heading observations and cannot prolong a press.
+        if mh is None or not 0.0 <= now - mh_t <= 0.75:
+            if self.steer:
                 self.force_release(now, mh_t)
+            return 0
+        if mh_t > self.last_hd_t:
+            self.update_angular_velocity(mh_t, heading)
 
-        # Micro-corrections after settle
-        if self.steer == 0 and now > self.settle_until and fresh:
-            if err > self.dead_off:
-                self.steer = 1
-                self.steer_ph = 0
-                self.micro = True
-                self.hold_t0 = now
-                self.settle_mh = mh_t
-            elif err < -self.dead_off:
-                self.steer = -1
-                self.steer_ph = 0
-                self.micro = True
-                self.hold_t0 = now
-                self.settle_mh = mh_t
-
-        press_steer = False
-        if self.steer != 0:
-            if self.micro:
-                if self.steer_ph < self.pulse_on:
-                    press_steer = True
-                self.steer_ph += 1
-                if self.steer_ph >= self.pulse_on:
-                    self.force_release(now, mh_t)
-            else:
-                press_steer = True
-
-        if press_steer:
+        if self.steer:
+            reversed_or_aligned = err * self.steer <= self.dead_off
+            if reversed_or_aligned or now >= self.imp_end:
+                self.force_release(now, mh_t)
             return self.steer
-        return 0
+
+        # Each pulse needs a heading observed after the previous release.
+        if now <= self.settle_until or mh_t <= self.settle_mh:
+            return 0
+        if abs(err) <= self.dead_off:
+            return 0
+        self.steer = 1 if err > 0 else -1
+        self.micro = abs(err) <= self.dead
+        self.hold = False
+        duration = self.t_min if self.micro else self.calc_impulse(err)
+        self.imp_end = now + min(0.5, self.t_max, duration)
+        self.press_t0 = now
+        self.press_h0 = heading
+        return self.steer

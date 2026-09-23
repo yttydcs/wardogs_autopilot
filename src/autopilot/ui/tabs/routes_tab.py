@@ -11,7 +11,6 @@ from typing import Any
 
 from ...common.config import AppConfig
 from ...navigation.follow import FollowDriver
-from ...vision import locator
 from ..map_canvas import InteractiveMapCanvas
 from ..presets import PresetManager
 
@@ -328,18 +327,5 @@ class RoutesTab(ttk.Frame):
             return
 
         x, y = self.canvas_widget.to_canvas(mp[0], mp[1])
-        heading = locator.heading_deg(pose)
-        rad = math.radians(heading)
-        alen = 28.0
-        canvas.create_line(
-            x,
-            y,
-            x + alen * math.sin(rad),
-            y - alen * math.cos(rad),
-            fill="#ff3b3b",
-            width=3,
-            arrow="last",
-            arrowshape=(7, 9, 3),
-            tags="rvmarker",
-        )
+        # Position only: map rotation cannot supply a vehicle heading.
         canvas.create_oval(x - 5, y - 5, x + 5, y + 5, outline="#ffdd00", width=2, tags="rvmarker")

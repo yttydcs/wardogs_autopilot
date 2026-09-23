@@ -248,3 +248,23 @@ ruff check .
 
 ## License
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+
+### Steering and capture alignment
+
+The position marker represents the **center of the capture rectangle**. Select only
+map imagery, excluding bottom HUD bars, and ensure the player icon is centered.
+Map registration rotation is not vehicle heading, so the map views show a position
+marker without a direction arrow.
+
+Navigation uses recent movement to estimate direction. After F6, drive forward
+briefly in a clear straight section until `wait_heading` changes to `run`. At rest,
+or when direction evidence expires, automatic keys are released; it does not
+infer a north-facing vehicle from a north-up map. This course estimate assumes
+forward motion, not reversing. F7 stops and releases keys.
+
+Steering is limited to pulses of at most 0.5 seconds, with a settling interval and
+a new motion observation required before another pulse. Old `hold_max` and
+`turn_deg` settings remain accepted for config compatibility but no longer enable
+continuous steering. This does not establish a calibrated vehicle dynamics model;
+validate at low speed before using longer routes.

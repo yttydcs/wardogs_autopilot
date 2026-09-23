@@ -56,6 +56,10 @@ class PathTracker:
             return False
         if now - self._samples[-1][0] > max_age:
             self._samples = [s for s in self._samples if now - s[0] <= max_age]
+        if not self._samples:
+            self._mh = None
+            self._mh_t = 0.0
+            self._mv = 0.0
         return bool(self._samples)
 
     def lost_limit(self) -> float:
@@ -64,8 +68,14 @@ class PathTracker:
 
     def push_pose(self, ts: float, x: float, y: float) -> bool:
         """Append a fresh pose sample and update motion-derived course (M-heading)."""
-        if self._samples and abs(ts - self._samples[-1][0]) < 1e-6:
+        if self._samples and ts <= self._samples[-1][0]:
             return False
+
+        if self._samples and ts - self._samples[-1][0] > 1.5:
+            self._samples.clear()
+            self._mh = None
+            self._mh_t = 0.0
+            self._mv = 0.0
 
         if self._samples:
             base = ts - self._mh_dt
@@ -79,8 +89,8 @@ class PathTracker:
             d = math.hypot(x - bx, y - by)
             if dts > 1e-3:
                 self._mv = d / dts
-                self._mh_t = ts
                 if d >= self._mh_min_d:
+                    self._mh_t = ts
                     raw = math.degrees(math.atan2(x - bx, -(y - by))) % 360.0
                     if self._mh is None:
                         self._mh = raw
@@ -93,6 +103,12 @@ class PathTracker:
         if len(self._samples) > 16:
             self._samples = self._samples[-16:]
         return True
+
+    def motion_heading(self, now: float) -> float | None:
+        """Return course only while supported by recent measurable movement."""
+        if self._mh is None or not 0.0 <= now - self._mh_t <= 0.75 or self._mv < 3.0:
+            return None
+        return self._mh
 
     def pose_at(self, now: float) -> tuple[float, float] | None:
         """Estimate current position via linear interpolation/extrapolation."""

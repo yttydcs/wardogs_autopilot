@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import threading
 import tkinter as tk
 from collections.abc import Callable
@@ -358,31 +357,17 @@ class MapTab(ttk.Frame):
             return
 
         x, y = self.canvas_widget.to_canvas(mp[0], mp[1])
-        heading = locator.heading_deg(pose)
-        if self._disp_th is None:
-            self._disp_th = heading
-        else:
-            dth = (heading - self._disp_th + 540.0) % 360.0 - 180.0
-            self._disp_th = (self._disp_th + dth * 0.4) % 360.0
-        heading = self._disp_th
-        rad = math.radians(heading)
-        alen = 30.0
-        ax = x + alen * math.sin(rad)
-        ay = y - alen * math.cos(rad)
-
+        # Registration rotation describes the map, not the vehicle's direction.
         for t in ("marker", "arrow", "searchzone"):
             canvas.delete(t)
 
-        canvas.create_line(
-            x, y, ax, ay, fill="#ff3b3b", width=3, arrow="last", arrowshape=(8, 10, 3), tags="arrow"
-        )
         r = 6
         canvas.create_oval(x - r, y - r, x + r, y + r, outline="#ffdd00", width=2, tags="marker")
         canvas.create_line(x - r - 4, y, x + r + 4, y, fill="#ffdd00", width=1, tags="marker")
         canvas.create_line(x, y - r - 4, x, y + r + 4, fill="#ffdd00", width=1, tags="marker")
 
         self.map_status.config(
-            text=f"map px: x={mp[0]:.0f} y={mp[1]:.0f}   heading: {heading:.1f}°   "
+            text=f"map px: x={mp[0]:.0f} y={mp[1]:.0f}   map rotation: {pose['th']:.1f}°   "
             f"s={pose['s']:.3f} inl={pose.get('inl', 0)}{delay_txt}"
         )
 
