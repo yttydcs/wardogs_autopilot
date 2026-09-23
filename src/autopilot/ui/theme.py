@@ -14,24 +14,6 @@ DARK_FG = "#e8e8e8"
 DARK_CANVAS = "#2b2b2b"
 RGB_CANVAS = (43, 43, 43)  # equivalent of #2b2b2b for the numpy background
 
-_RESET_OPTS = (
-    "background",
-    "foreground",
-    "troughcolor",
-    "bordercolor",
-    "darkcolor",
-    "lightcolor",
-    "focuscolor",
-    "selectbackground",
-    "selectforeground",
-    "fieldbackground",
-    "insertcolor",
-    "sliderlength",
-    "arrowcolor",
-    "padding",
-)
-
-
 def windows_dark_mode() -> bool:
     """Windows app dark theme (AppsUseLightTheme == 0)."""
     try:
@@ -42,7 +24,7 @@ def windows_dark_mode() -> bool:
             r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
         ) as k:
             return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
-    except OSError:
+    except (ImportError, OSError):
         return False
 
 
@@ -65,27 +47,20 @@ class ThemeManager:
         self._dark = dark
         s = self._style
         if not dark:
-            s.theme_use("vista")
-            for opts in (
-                ".",
-                "TFrame",
-                "TLabel",
-                "TButton",
-                "TEntry",
-                "TSpinbox",
-                "TCombobox",
-                "Horizontal.TScale",
-                "Vertical.TScrollbar",
-                "Horizontal.TScrollbar",
-                "TNotebook",
-                "TNotebook.Tab",
-            ):
-                s.configure(opts, **{o: "" for o in _RESET_OPTS})
-            self._root.option_clear()
+            s.theme_use("vista" if "vista" in s.theme_names() else "clam")
+            # Native themes already provide valid defaults. Empty style values
+            # override those defaults and can collapse widgets or render black.
+            self._root.option_add("*TCombobox*Listbox.background", "white")
+            self._root.option_add("*TCombobox*Listbox.foreground", "black")
+            self._root.option_add("*TCombobox*Listbox.selectBackground", "#0078d7")
+            self._root.option_add("*TCombobox*Listbox.selectForeground", "white")
             self._root.configure(bg="#f0f0f0")
             self._roi_status.config(foreground="green")
             return
-        s.theme_use("clam")
+        # Keep dark overrides out of the stock themes used in light mode.
+        if "wardogs-dark" not in s.theme_names():
+            s.theme_create("wardogs-dark", parent="clam")
+        s.theme_use("wardogs-dark")
         bg, fg, panel, hi = DARK_BG, DARK_FG, DARK_PANEL, DARK_HI
         s.configure(
             ".",
