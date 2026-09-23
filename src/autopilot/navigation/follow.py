@@ -179,7 +179,8 @@ class FollowDriver(threading.Thread):
         self._stop_ev.set()
         try:
             if self.kb is not None:
-                self.kb.release_all()
+                close = getattr(self.kb, "close", self.kb.release_all)
+                close()
         except OSError:
             pass
         self.telemetry.close()
@@ -576,6 +577,7 @@ class FollowDriver(threading.Thread):
             self.telemetry.close()
             try:
                 if self.kb is not None:
-                    self.kb.release_all()
+                    close = getattr(self.kb, "close", self.kb.release_all)
+                    close()
             except OSError:
                 pass

@@ -262,6 +262,11 @@ class RoutesTab(ttk.Frame):
         self.routes_status.config(text="autopilot enabled", foreground="#8ae234")
 
     def _make_kb(self, port: str) -> Any:
+        if self.app_cfg.navigator.key_source == "software":
+            from ...hardware.software_keyboard import SoftwareKeyDriver
+
+            return SoftwareKeyDriver()
+
         from ...hardware.arduino_keyboard import ArduinoKeyDriver
 
         try:

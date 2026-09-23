@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -95,7 +95,9 @@ class NavigatorConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    key_source: str = Field(default="arduino", description="'arduino' or virtual simulator")
+    key_source: Literal["software", "arduino"] = Field(
+        default="software", description="Windows software keyboard or Arduino HID keyboard"
+    )
     port: str = Field(default="COM6", description="Serial port for Arduino Micro")
     arrive_r: float = Field(default=25.0, ge=1.0, description="Waypoint arrival radius (px)")
     slow_r: float = Field(default=350.0, ge=1.0, description="Deceleration radius (px)")

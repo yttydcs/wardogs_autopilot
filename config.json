@@ -43,7 +43,7 @@
     "mini_scale": 2.6544
   },
   "navigator": {
-    "key_source": "arduino",
+    "key_source": "software",
     "port": "COM6",
     "arrive_r": 25.0,
     "slow_r": 350.0,

@@ -7,7 +7,30 @@
 ![Tkinter](https://img.shields.io/badge/GUI-Tkinter-FFD43B.svg)
 
 Autonomous delivery autopilot for WARDOGS.
-This project captures the in-game minimap, localizes the vehicle on full game maps using offline SIFT feature indexes, and drives the supply truck with WASD/Space keystrokes injected through an Arduino Micro that emulates a USB HID keyboard.
+This project captures the in-game minimap, localizes the vehicle on full game maps using offline SIFT feature indexes, and drives the supply truck with WASD/Space keystrokes. Windows software keyboard input is the default; Arduino Micro USB HID input remains available.
+
+## Software keyboard (Windows, no Arduino required)
+
+Set `navigator.key_source` to `"software"` in `config.json` (the default).
+The driver uses Windows `SendInput` scan codes through Python's standard library;
+no extra keyboard package or serial device is needed. See Microsoft's
+[KEYBDINPUT documentation](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput).
+
+Install dependencies and prepare map assets as below, then run `python main.py ui`.
+Calibrate the minimap capture region and load a route with at least two points.
+Bring the game to the foreground, then press **F6** to start/stop following;
+**F7** releases keys and stops the driver. Software input goes to the foreground
+application, so stop following before switching windows. The driving logic uses
+W/A/S/D/Space only and does not need mouse input.
+
+Held keys are released on normal exit, emergency stop, or after approximately
+200 ms without a fresh command (checked every 50 ms). The software watchdog runs
+inside the Python process; it cannot recover from a forcibly terminated or frozen
+process. Game acceptance of synthetic input still needs an in-game test. SendInput
+failure is reported by the driver; the software mode does not bypass game input restrictions.
+
+To use hardware input again, set `navigator.key_source` to `"arduino"` and set
+`navigator.port` to the connected serial port.
 
 ## Features
 - **SIFT Feature Index Localization**: Radius-based search on multi-scale tile feature indexes (`*_feat.npz`), delivering ~0.2 px precision in ~1.5s cold start and sub-second tracking.
@@ -125,7 +148,7 @@ wardogs-autopilot/
 ### Prerequisites
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) package manager *(recommended)* or pip
-- Arduino Micro (ATmega32U4) connected via USB (default: `COM6`)
+- Windows for software input; alternatively Arduino Micro (ATmega32U4) connected via USB (default: `COM6`)
 
 ### Step 1: Install Dependencies
 
@@ -152,7 +175,7 @@ python tools/download_map.py zestafona
 python tools/download_map.py --all
 ```
 
-### Step 3: Flash the Arduino Firmware
+### Step 3: Flash the Arduino Firmware (Arduino mode only)
 
 Compile and upload the keyboard emulator sketch to the Arduino Micro using Arduino CLI.
 
